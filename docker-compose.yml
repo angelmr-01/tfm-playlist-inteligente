@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./app/backend
+      dockerfile: Dockerfile
+    container_name: backend_tfm
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app/backend:/app
+      - ./app/checkpoint:/app/checkpoint
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
