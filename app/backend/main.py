@@ -1,124 +1,249 @@
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-import shutil
 import os
-
-# Librerías de tu IA
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import librosa
+import tempfile
 import numpy as np
+import librosa
+import torch
+import requests
+import random
+import time
+import json
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from models import MusicCNNAttention, MusicCRNN
+from enum import Enum
 
-# 1. INICIALIZAR EL SERVIDOR WEB (Como hacer const app = express())
-app = FastAPI(title="API de Emociones Musicales TFM")
 
-# Configurar CORS para permitir que React (que estará en otro puerto) se comunique
+# Server Configuration
+app = FastAPI(title="TFM - AI Music Emotions API")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # En producción se pone la URL exacta de React
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 2. DEFINIR LA ARQUITECTURA DE LA IA
-class SimpleCNN(nn.Module):
-    def __init__(self, num_classes=4):
-        super(SimpleCNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((8, 8))
-        self.fc1 = nn.Linear(32 * 8 * 8, 64)
-        self.fc2 = nn.Linear(64, num_classes)
+# AI Configuration
+# Maintain the same index order as the Colab training script
+JAMENDO_TAGS = [
+    'calm', 
+    'dark', 
+    'emotional', 
+    'energetic', 
+    'epic', 
+    'happy', 
+    'melancholic', 
+    'powerful', 
+    'relaxing', 
+    'romantic', 
+    'sad', 
+    'upbeat'
+]
 
-    def forward(self, x):
-        x = self.pool(F.relu(self.bn1(self.conv1(x))))
-        x = self.pool(F.relu(self.bn2(self.conv2(x))))
-        x = self.adaptive_pool(x)
-        x = x.view(x.size(0), -1) 
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+ai_models = {}
+device = torch.device("cpu")
 
-# 3. CARGAR EL MODELO EN MEMORIA (Cold Start)
-print("⏳ Arrancando servidor y cargando IA en memoria...")
-modelo = SimpleCNN(num_classes=4)
+def load_model(model_name: str):
+    global ai_models
+    
+    if model_name in ai_models:
+        return ai_models[model_name]
+        
+    num_classes = len(JAMENDO_TAGS)
+    if model_name == "cnn_self_attention":
+        model_path = "checkpoint/cnn_self_attention/best_model.pth"
+        model = MusicCNNAttention(num_classes=num_classes)
+    elif model_name == "crnn":
+        model_path = "checkpoint/crnn/best_model.pth"
+        model = MusicCRNN(num_classes=num_classes)
+    else:
+        print(f"ERROR: Unknown model '{model_name}'.")
+        return None
 
-# 🔥 IMPORTANTE: Pon aquí la ruta real de tu archivo .pth local
-RUTA_CHECKPOINT = ".../Checkpoint/checkpoint_epoch_5.pth" 
+    if os.path.exists(model_path):
+        print(f"Loading {model_name} into memory...")
+        checkpoint = torch.load(model_path, map_location=device)
+        
+        if "model_state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["model_state_dict"])
+        elif "state_dict" in checkpoint:
+            model.load_state_dict(checkpoint["state_dict"])
+        else:
+            model.load_state_dict(checkpoint)
+            
+        model.eval()
+        ai_models[model_name] = model
+    else:
+        print(f"CRITICAL ERROR: Model file not found at {model_path}")
+        return None
+        
+    return ai_models[model_name]
 
-if os.path.exists(RUTA_CHECKPOINT):
-    checkpoint = torch.load(RUTA_CHECKPOINT, map_location=torch.device('cpu'), weights_only=False)
-    modelo.load_state_dict(checkpoint['model_state_dict'])
-    modelo.eval()
-    print("✅ IA cargada y lista para recibir peticiones web.")
+# Global Eager Loading
+print("Eager Loading: Loading models into RAM globally...")
+load_model("cnn_self_attention")
+load_model("crnn")
+print("Global model loading completed.")
+
+# Jamendo Configuration
+JAMENDO_CLIENT_ID = os.getenv("JAMENDO_CLIENT_ID")
+if not JAMENDO_CLIENT_ID:
+    print("WARNING: JAMENDO_CLIENT_ID missing in .env")
 else:
-    print(f"⚠️ ADVERTENCIA: No se encontró el modelo en {RUTA_CHECKPOINT}")
+    print("Jamendo credentials detected.")
 
 
-# 4. DEFINIR LAS RUTAS (ENDPOINTS)
+class AvailableModels(str, Enum):
+    cnn_self_attention = "cnn_self_attention"
+    crnn = "crnn"
 
-# Ruta base de comprobación (Health Check)
-@app.get("/")
-def leer_raiz():
-    return {"mensaje": "Servidor IA funcionando correctamente", "estado": "online"}
+class AvailableEmotions(str, Enum):
+    calm = "calm"
+    dark = "dark"
+    emotional = "emotional"
+    energetic = "energetic"
+    epic = "epic"
+    happy = "happy"
+    melancholic = "melancholic"
+    powerful = "powerful"
+    relaxing = "relaxing"
+    romantic = "romantic"
+    sad = "sad"
+    upbeat = "upbeat"
 
-# Ruta principal: Recibe un archivo, lo analiza y devuelve el JSON
-@app.post("/api/analizar")
-async def analizar_audio(file: UploadFile = File(...)):
-    # a) Guardar el archivo temporalmente en el disco
-    ruta_temp = f"temp_{file.filename}"
-    with open(ruta_temp, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
+@app.get("/api/playlist/{emotion}")
+async def generate_playlist(emotion: AvailableEmotions, model: AvailableModels):
+    emotion = emotion.value
+    if not JAMENDO_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Missing JAMENDO_CLIENT_ID")
+
+    # Heuristic Mapping: Broad genres to filter candidates
+    jamendo_mapping = {
+        "happy":       {"tags": "pop", "speed": "high"},
+        "sad":         {"tags": "piano", "speed": "low"},
+        "energetic":   {"tags": "electronic", "speed": "high"},
+        "relaxing":    {"tags": "ambient", "speed": "low"},
+        "dark":        {"tags": "cinematic", "speed": "low"},
+        "romantic":    {"tags": "acoustic", "speed": "low"},
+        "emotional":   {"tags": "soundtrack", "speed": "low"},
+        "upbeat":      {"tags": "dance", "speed": "high"},
+        "epic":        {"tags": "orchestral", "speed": "high"},
+        "melancholic": {"tags": "classical", "speed": "low"},
+        "calm":        {"tags": "ambient", "speed": "low"},
+        "powerful":    {"tags": "rock", "speed": "high"}
+    }
+
+    url_base = "https://api.jamendo.com/v3.0/tracks/"
+    
+    # Random offsets to avoid repetitive tracks
+    random_offset_a = random.randint(0, 150)
+    random_offset_b = random.randint(0, 500)
+
     try:
-        # b) Preprocesamiento (Librosa)
-        y, sr = librosa.load(ruta_temp, sr=22050, duration=10)
-        muestras_esperadas = 10 * 22050
-        if len(y) < muestras_esperadas:
-            y = np.pad(y, (0, muestras_esperadas - len(y)))
-            
-        mel = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, fmax=8000)
-        mel_db = librosa.power_to_db(mel, ref=np.max)
-        mel_norm = (mel_db - mel_db.min()) / (mel_db.max() - mel_db.min() + 1e-6)
-        
-        # c) Inferencia (PyTorch)
-        tensor_input = torch.tensor(mel_norm, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-        
-        with torch.no_grad():
-            salida = modelo(tensor_input)
-            probabilidades = F.softmax(salida, dim=1)[0].numpy() * 100
-            clase_ganadora = int(np.argmax(probabilidades))
-            
-        diccionario_emociones = {0: 'Q1', 1: 'Q2', 2: 'Q3', 3: 'Q4'}
-        emocion_final = diccionario_emociones[clase_ganadora]
-        
-        # d) Borrar el archivo temporal para no llenar el disco duro
-        os.remove(ruta_temp)
-        
-        # e) Devolver la respuesta a React en formato JSON puro
-        # Convertimos explícitamente a float nativo de Python para que JSON lo entienda
-        return {
-            "archivo": file.filename,
-            "emocion_detectada": emocion_final,
-            "confianza": {
-                "Q1": float(round(probabilidades[0], 2)),
-                "Q2": float(round(probabilidades[1], 2)),
-                "Q3": float(round(probabilidades[2], 2)),
-                "Q4": float(round(probabilidades[3], 2))
-            }
+        # Query A: Heuristic sampling
+        params_a = {
+            "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 15,
+            "include": "musicinfo", "offset": random_offset_a
         }
-        
-    except Exception as e:
-        if os.path.exists(ruta_temp):
-            os.remove(ruta_temp)
-        return {"error": str(e)}
+        params_a.update(jamendo_mapping[emotion])
+        response_a = requests.get(url_base, params=params_a).json()
 
-# Bloque de arranque si se ejecuta este archivo directamente
+        # Query B: Popularity sampling (Noise)
+        params_b = {
+            "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 15,
+            "order": "popularity_total", "offset": random_offset_b
+        }
+        response_b = requests.get(url_base, params=params_b).json()
+
+        combined_tracks = response_a.get('results', []) + response_b.get('results', [])
+        raw_candidates = [
+            {
+                "id": t['id'], "title": t['name'], "artist": t['artist_name'],
+                "preview_url": t['audio'], "image": t['image']
+            } for t in combined_tracks if t.get('audio')
+        ]
+        random.shuffle(raw_candidates)
+
+        # Real-time async evaluation generator
+        async def song_generator():
+            buffer = []
+            last_send_time = time.time()
+            total_approved = 0
+            
+            loaded_ai_model = load_model(model.value)
+
+            for song in raw_candidates:
+                if total_approved >= 10:
+                    break
+                    
+                if not loaded_ai_model:
+                    yield "data: {\"error\": \"Falta el archivo .pth\"}\n\n"
+                    break
+
+                try:
+                    t_start = time.time()
+
+                    audio_response = requests.get(song["preview_url"])
+                    _, temp_path = tempfile.mkstemp(suffix=".mp3")
+                    with open(temp_path, "wb") as f:
+                        f.write(audio_response.content)
+                    t_download = time.time()
+
+                    y, sr = librosa.load(temp_path, sr=22050, duration=30.0)
+                    spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
+                    spectrogram_db = librosa.power_to_db(spectrogram, ref=np.max)
+                    os.remove(temp_path)
+                    t_librosa = time.time()
+
+                    audio_tensor = torch.tensor(spectrogram_db).unsqueeze(0).unsqueeze(0).float()
+                    
+                    with torch.no_grad(): 
+                        logits_output = loaded_ai_model(audio_tensor)
+                        probabilities = torch.sigmoid(logits_output)[0] 
+                        
+                        idx_requested_emotion = JAMENDO_TAGS.index(emotion)
+                        requested_confidence = probabilities[idx_requested_emotion].item()
+
+                        max_index = torch.argmax(probabilities).item()
+                        dominant_emotion = JAMENDO_TAGS[max_index]
+                    
+                    t_ia = time.time()
+
+                    print(f"Analyzing: {song['title']}")
+                    print(f"  - Download MP3: {t_download - t_start:.2f}s")
+                    print(f"  - Librosa:      {t_librosa - t_download:.2f}s")
+                    print(f"  - AI Inference: {t_ia - t_librosa:.2f}s")
+                    print(f"  -> Request '{emotion}'. Confidence: {requested_confidence*100:.1f}% (Dominant: {dominant_emotion})")
+                    print("-" * 30)
+
+                    # Acceptance criteria
+                    if requested_confidence >= 0.50 or dominant_emotion == emotion:
+                        buffer.append(song)
+                        total_approved += 1
+
+                except Exception as e:
+                    print(f"Error processing {song['title']}: {e}")
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+
+                elapsed_time = time.time() - last_send_time
+                if len(buffer) >= 2 or (len(buffer) == 1 and elapsed_time > 10):
+                    yield f"data: {json.dumps(buffer)}\n\n"
+                    buffer = [] 
+                    last_send_time = time.time() 
+
+            if buffer:
+                yield f"data: {json.dumps(buffer)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        # Return the async generator wrapped in a StreamingResponse
+        return StreamingResponse(song_generator(), media_type="text/event-stream")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
