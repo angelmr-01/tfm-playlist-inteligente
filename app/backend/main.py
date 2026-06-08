@@ -191,7 +191,7 @@ async def generate_playlist(emotion: AvailableEmotions, model: AvailableModels):
                         f.write(audio_response.content)
                     t_download = time.time()
 
-                    y, sr = librosa.load(temp_path, sr=22050, duration=30.0)
+                    y, sr = librosa.load(temp_path, sr=22050, offset=15.0, duration=30.0)
                     spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
                     spectrogram_db = librosa.power_to_db(spectrogram, ref=np.max)
                     os.remove(temp_path)
