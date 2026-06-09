@@ -1,11 +1,12 @@
 import json
 import time
+import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import AvailableModels, AvailableEmotions
 from services.music_provider import fetch_candidates
-from services.inference_engine import evaluate_song, load_model
+from services.inference_engine import evaluate_song, load_model, warmup_models
 
 # Server Configuration
 app = FastAPI(title="TFM - AI Music Emotions API")
@@ -19,10 +20,11 @@ app.add_middleware(
 )
 
 # Global Eager Loading
-print("Eager Loading: Loading models into RAM globally...")
+print("Eager Loading: Loading models into RAM...")
 load_model("cnn_self_attention")
 load_model("crnn")
-print("Global model loading completed.")
+print("Model loading completed.")
+warmup_models()
 
 
 @app.get("/api/playlist/{emotion}")
@@ -38,30 +40,46 @@ async def generate_playlist(emotion: AvailableEmotions, model: AvailableModels):
         async def song_generator():
             buffer = []
             total_approved = 0
+            
+            # Concurrency limit to evaluate at most 4 songs at once (preventing CPU/RAM crash)
+            concurrency_limiter = asyncio.Semaphore(4)
 
-            for song in raw_candidates:
+            async def bounded_evaluate(song_item):
+                async with concurrency_limiter:
+                    return await evaluate_song(song_item, emotion_val, model_val)
+
+            # Fire off all evaluations concurrently
+            evaluation_tasks = [asyncio.create_task(bounded_evaluate(song)) for song in raw_candidates]
+
+            # Yield as soon as any task completes
+            for completed_task in asyncio.as_completed(evaluation_tasks):
                 if total_approved >= 10:
                     break
 
-                # 3. Evaluate each song concurrently without blocking the event loop
-                result = await evaluate_song(song, emotion_val, model_val)
+                result = await completed_task
 
                 if result.get("error"):
-                    print(f"Error processing {song['title']}: {result['error']}")
+                    song_title = result.get("song", {}).get("title", "Unknown")
+                    print(f"Error processing {song_title}: {result['error']}")
                     # If it's a critical missing file error, we inform the UI
-                    if "Falta el archivo" in result["error"]:
+                    if "Missing .pth" in result["error"]:
                         yield f"data: {{\"error\": \"{result['error']}\"}}\n\n"
                         break
                     continue
 
-                if result["is_approved"]:
-                    buffer.append(song)
+                if result.get("is_approved"):
+                    buffer.append(result["song"])
                     total_approved += 1
 
                 # Send immediately if buffer is not empty to improve UX responsiveness
                 if len(buffer) >= 1:
                     yield f"data: {json.dumps(buffer)}\n\n"
                     buffer = []
+
+            # Cleanup pending tasks if we stopped early (e.g., reached 10 songs)
+            for t in evaluation_tasks:
+                if not t.done():
+                    t.cancel()
 
             if buffer:
                 yield f"data: {json.dumps(buffer)}\n\n"

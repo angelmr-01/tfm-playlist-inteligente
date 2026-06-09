@@ -7,30 +7,30 @@ def _fetch_candidates_sync(emotion: str) -> list:
     url_base = "https://api.jamendo.com/v3.0/tracks/"
     
     # Random offsets to avoid repetitive tracks
-    random_offset_a = random.randint(0, 150)
-    random_offset_b = random.randint(0, 500)
+    heuristic_offset = random.randint(0, 150)
+    popularity_offset = random.randint(0, 500)
 
     # Query A: Heuristic sampling
-    params_a = {
+    heuristic_params = {
         "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 15,
-        "include": "musicinfo", "offset": random_offset_a
+        "include": "musicinfo", "offset": heuristic_offset
     }
-    params_a.update(JAMENDO_MAPPING[emotion])
-    response_a = requests.get(url_base, params=params_a).json()
+    heuristic_params.update(JAMENDO_MAPPING[emotion])
+    heuristic_response = requests.get(url_base, params=heuristic_params).json()
 
     # Query B: Popularity sampling (Noise)
-    params_b = {
+    popularity_params = {
         "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 15,
-        "order": "popularity_total", "offset": random_offset_b
+        "order": "popularity_total", "offset": popularity_offset
     }
-    response_b = requests.get(url_base, params=params_b).json()
+    popularity_response = requests.get(url_base, params=popularity_params).json()
 
-    combined_tracks = response_a.get('results', []) + response_b.get('results', [])
+    combined_tracks = heuristic_response.get('results', []) + popularity_response.get('results', [])
     raw_candidates = [
         {
-            "id": t['id'], "title": t['name'], "artist": t['artist_name'],
-            "preview_url": t['audio'], "image": t['image']
-        } for t in combined_tracks if t.get('audio')
+            "id": track['id'], "title": track['name'], "artist": track['artist_name'],
+            "preview_url": track['audio'], "image": track['image']
+        } for track in combined_tracks if track.get('audio')
     ]
     random.shuffle(raw_candidates)
     return raw_candidates

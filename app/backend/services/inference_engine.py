@@ -48,29 +48,53 @@ def load_model(model_name: str):
         
     return ai_models[model_name]
 
+def warmup_models():
+    print("Warming up models to avoid Cold Start delay...")
+    t0 = time.time()
+    try:
+        # Dummy audio: 30 seconds of silence
+        y = np.zeros(22050 * 30, dtype=np.float32)
+        sr = 22050
+        
+        # Force Numba JIT compilation for Librosa
+        spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
+        spectrogram_db = librosa.power_to_db(spectrogram, ref=np.max)
+        audio_tensor = torch.tensor(spectrogram_db).unsqueeze(0).unsqueeze(0).float()
+
+        # Force PyTorch C++ / CPU threads initialization
+        for model_name in ["cnn_self_attention", "crnn"]:
+            model = load_model(model_name)
+            if model:
+                with torch.no_grad():
+                    _ = model(audio_tensor)
+                    
+        print(f"Warmup completed in {time.time() - t0:.2f}s")
+    except Exception as e:
+        print(f"Warmup failed: {e}")
+
 def _evaluate_song_sync(song: dict, emotion: str, model_name: str) -> dict:
     loaded_ai_model = load_model(model_name)
     if not loaded_ai_model:
-        return {"error": "Falta el archivo .pth"}
+        return {"error": "Missing .pth file"}
 
     temp_path = None
     try:
         t_start = time.time()
 
-        # Download MP3
+        # Fetch Audio from API
         audio_response = requests.get(song["preview_url"])
         _, temp_path = tempfile.mkstemp(suffix=".mp3")
         with open(temp_path, "wb") as f:
             f.write(audio_response.content)
-        t_download = time.time()
+        t_fetch = time.time()
 
-        # Acoustic Processing
+        # Calculate Mel-Spectrogram
         y, sr = librosa.load(temp_path, sr=22050, offset=15.0, duration=30.0)
         spectrogram = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
         spectrogram_db = librosa.power_to_db(spectrogram, ref=np.max)
         os.remove(temp_path)
         temp_path = None
-        t_librosa = time.time()
+        t_spectrogram = time.time()
 
         # Inference
         audio_tensor = torch.tensor(spectrogram_db).unsqueeze(0).unsqueeze(0).float()
@@ -87,9 +111,9 @@ def _evaluate_song_sync(song: dict, emotion: str, model_name: str) -> dict:
         t_ia = time.time()
 
         print(f"Analyzing: {song['title']}")
-        print(f"  - Download MP3: {t_download - t_start:.2f}s")
-        print(f"  - Librosa:      {t_librosa - t_download:.2f}s")
-        print(f"  - AI Inference: {t_ia - t_librosa:.2f}s")
+        print(f"  - API Audio Fetch: {t_fetch - t_start:.2f}s")
+        print(f"  - Spectrogram Calc: {t_spectrogram - t_fetch:.2f}s")
+        print(f"  - AI Inference: {t_ia - t_spectrogram:.2f}s")
         print(f"  -> Request '{emotion}'. Confidence: {requested_confidence*100:.1f}% (Dominant: {dominant_emotion})")
         print("-" * 30)
 
