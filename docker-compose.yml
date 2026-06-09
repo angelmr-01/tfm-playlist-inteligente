@@ -13,3 +13,23 @@ services:
     volumes:
       - ./app/backend:/app
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./app/frontend
+      dockerfile: Dockerfile
+    container_name: frontend_tfm
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./app/frontend:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
