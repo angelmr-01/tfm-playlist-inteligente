@@ -12,7 +12,7 @@ def _fetch_candidates_sync(emotion: str) -> list:
 
     # Query A: Heuristic sampling
     heuristic_params = {
-        "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 30,
+        "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 10,
         "include": "musicinfo", "offset": heuristic_offset
     }
     heuristic_params.update(JAMENDO_MAPPING[emotion])
@@ -20,7 +20,7 @@ def _fetch_candidates_sync(emotion: str) -> list:
 
     # Query B: Popularity sampling (Noise)
     popularity_params = {
-        "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 30,
+        "client_id": JAMENDO_CLIENT_ID, "format": "json", "limit": 10,
         "order": "popularity_total", "offset": popularity_offset
     }
     popularity_response = requests.get(url_base, params=popularity_params).json()
