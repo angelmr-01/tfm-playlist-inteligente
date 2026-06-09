@@ -27,6 +27,10 @@ print("Model loading completed.")
 warmup_models()
 
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ready"}
+
 @app.get("/api/playlist/{emotion}")
 async def generate_playlist(emotion: AvailableEmotions, model: AvailableModels):
     emotion_val = emotion.value
