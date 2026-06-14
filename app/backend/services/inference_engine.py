@@ -7,8 +7,25 @@ import numpy as np
 import librosa
 import torch
 from core.config import JAMENDO_TAGS
-from models import MusicCNNAttention, MusicCRNN
+from models import CNN, MusicCRNN, MobileNetTL
 
+OPTIMAL_THRESHOLDS = {
+    "cnn": {
+        "calm": 0.09, "dark": 0.18, "emotional": 0.12, "energetic": 0.33,
+        "epic": 0.22, "happy": 0.14, "melancholic": 0.13, "powerful": 0.14,
+        "relaxing": 0.15, "romantic": 0.14, "sad": 0.28, "upbeat": 0.10
+    },
+    "crnn": {
+        "calm": 0.09, "dark": 0.20, "emotional": 0.11, "energetic": 0.35,
+        "epic": 0.19, "happy": 0.11, "melancholic": 0.12, "powerful": 0.38,
+        "relaxing": 0.19, "romantic": 0.15, "sad": 0.21, "upbeat": 0.19
+    },
+    "mobilenet": {
+        "calm": 0.23, "dark": 0.17, "emotional": 0.05, "energetic": 0.27,
+        "epic": 0.30, "happy": 0.11, "melancholic": 0.09, "powerful": 0.07,
+        "relaxing": 0.19, "romantic": 0.15, "sad": 0.22, "upbeat": 0.21
+    }
+}
 ai_models = {}
 device = torch.device("cpu")
 
@@ -19,12 +36,15 @@ def load_model(model_name: str):
         return ai_models[model_name]
         
     num_classes = len(JAMENDO_TAGS)
-    if model_name == "cnn_self_attention":
-        model_path = "models/weights/cnn_self_attention/best_model.pth"
-        model = MusicCNNAttention(num_classes=num_classes)
+    if model_name == "cnn":
+        model_path = "models/weights/cnn/best_model.pth"
+        model = CNN(num_classes=num_classes)
     elif model_name == "crnn":
         model_path = "models/weights/crnn/best_model.pth"
         model = MusicCRNN(num_classes=num_classes)
+    elif model_name == "mobilenet":
+        model_path = "models/weights/mobilenet/best_model.pth"
+        model = MobileNetTL(num_classes=num_classes)
     else:
         print(f"ERROR: Unknown model '{model_name}'.")
         return None
@@ -62,7 +82,7 @@ def warmup_models():
         audio_tensor = torch.tensor(spectrogram_db).unsqueeze(0).unsqueeze(0).float()
 
         # Force PyTorch C++ / CPU threads initialization
-        for model_name in ["cnn_self_attention", "crnn"]:
+        for model_name in ["cnn", "crnn", "mobilenet"]:
             model = load_model(model_name)
             if model:
                 with torch.no_grad():
@@ -117,8 +137,11 @@ def _evaluate_song_sync(song: dict, emotion: str, model_name: str) -> dict:
         print(f"  -> Request '{emotion}'. Confidence: {requested_confidence*100:.1f}% (Dominant: {dominant_emotion})")
         print("-" * 30)
 
+        # Fetch threshold
+        optimal_threshold = OPTIMAL_THRESHOLDS.get(model_name, {}).get(emotion, 0.50)
+
         # Acceptance criteria
-        is_approved = (requested_confidence >= 0.50 or dominant_emotion == emotion)
+        is_approved = (requested_confidence >= optimal_threshold or dominant_emotion == emotion)
         
         return {
             "is_approved": is_approved,

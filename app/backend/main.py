@@ -21,8 +21,9 @@ app.add_middleware(
 
 # Global Eager Loading
 print("Eager Loading: Loading models into RAM...")
-load_model("cnn_self_attention")
+load_model("cnn")
 load_model("crnn")
+load_model("mobilenet")
 print("Model loading completed.")
 warmup_models()
 

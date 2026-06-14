@@ -1,0 +1,14 @@
+UMBRALES OPTIMIZADOS PARA: CRNN
+----------------------------------------
+calm: 0.09
+dark: 0.20
+emotional: 0.11
+energetic: 0.35
+epic: 0.19
+happy: 0.11
+melancholic: 0.12
+powerful: 0.38
+relaxing: 0.19
+romantic: 0.15
+sad: 0.21
+upbeat: 0.19

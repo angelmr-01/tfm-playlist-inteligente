@@ -1,0 +1,14 @@
+UMBRALES OPTIMIZADOS PARA: MobileNet (T.L.)
+----------------------------------------
+calm: 0.23
+dark: 0.17
+emotional: 0.05
+energetic: 0.27
+epic: 0.30
+happy: 0.11
+melancholic: 0.09
+powerful: 0.07
+relaxing: 0.19
+romantic: 0.15
+sad: 0.22
+upbeat: 0.21

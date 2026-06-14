@@ -1,0 +1,14 @@
+UMBRALES OPTIMIZADOS PARA: CNN (Propuesta)
+----------------------------------------
+calm: 0.09
+dark: 0.18
+emotional: 0.12
+energetic: 0.33
+epic: 0.22
+happy: 0.14
+melancholic: 0.13
+powerful: 0.14
+relaxing: 0.15
+romantic: 0.14
+sad: 0.28
+upbeat: 0.10

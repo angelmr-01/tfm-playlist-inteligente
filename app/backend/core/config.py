@@ -19,8 +19,9 @@ JAMENDO_TAGS = [
 ]
 
 class AvailableModels(str, Enum):
-    cnn_self_attention = "cnn_self_attention"
+    cnn = "cnn"
     crnn = "crnn"
+    mobilenet = "mobilenet"
 
 class AvailableEmotions(str, Enum):
     calm = "calm"

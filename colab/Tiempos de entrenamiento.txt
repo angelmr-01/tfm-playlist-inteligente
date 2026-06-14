@@ -1,0 +1,7 @@
+CRNN: 1 hora aproximadamente.
+CNN+AUTOATENCION: 20 minutos
+MobileNet - todos los modelos: 6 minutos aprox.
+CNN: 1 hora aproximadamente.
+MusicNN: 16 minutos
+BiLSTM: 38 minutos.
+MLP: 4 minutos

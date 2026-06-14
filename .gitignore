@@ -24,3 +24,11 @@ dist/
 
 
 .DS_Store
+
+# Archivos de datos del catálogo
+metadatos_catalogo_limpio.tsv
+tfm_catalogo_limpio.tsv
+metadatos_espectrogramas.csv
+
+# Resultados de entrenamiento
+resultados/
