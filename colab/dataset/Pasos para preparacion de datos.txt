@@ -1,0 +1,15 @@
+1. Clonar el repo de Jamendo.
+2. Descargar las canciones (151 GB, 55000 canciones) mediante el comando que nos proporcionan: 
+python scripts\download\download.py --dataset autotagging_moodtheme --type audio --unpack --remove ./datos_tfm_audio
+
+Ese comando descargará una colección de directorios con montones de pistas de audio en su interior. Se encargará de descargarlas, descomprimir los zips y eliminar los zips.
+
+3. Ejecutamos nuestro script preparar_datos.py, que genera un archivo .tsv con las canciones que tengan etiquetas y que correspondan con una lista de emociones que le pasemos. Obtendrá los datos de la rama main del repositorio.
+
+4. Ejecutar el script filtrar_audios.py para filtrar las canciones que nos hemos descargado (las 55000 aproximadamente) y quedarnos solo con aquellas que coinciden con las etiquetas que hemos seleccionado (las que aparecen en el archivo .tsv que hemos creado). Las canciones ya filtradas se almacenarán en el directorio datos_tfm_audio_limpio.
+
+5. Ejecutamos el script  generar_espectrogramas_local.py, que va a generar espectrogramas de mel de las canciones seleccionadas. Cuando termine, los comprimiremos en un zip y será subido a Google Drive junto con metadatos_espectrogramas.csv, de manera que en Google Colab, simplemente descargaremos ese zip, lo descomprimiremos y asi tendremos todos los espectrogramas directamente para ser usados por el modelo en la fase de entrenamiento. Ademas, al hacer en local el cálculo de espectrogramas, podemos aprovechar y usar los núcleos que tiene la CPU de mi equipo, ahorrando recursos de Colab.
+
+
+
+
