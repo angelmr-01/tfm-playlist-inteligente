@@ -1,2 +1,3 @@
-from .cnn_self_attention import MusicCNNAttention
+from .cnn import CNN
 from .crnn import MusicCRNN
+from .mobilenet import MobileNetTL

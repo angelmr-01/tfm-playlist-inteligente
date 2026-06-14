@@ -2,14 +2,14 @@ import { useState } from 'react'
 import './App.css'
 
 const EMOTIONS = [
-  "calm", "dark", "emotional", "energetic", 
-  "epic", "happy", "melancholic", "powerful", 
+  "calm", "dark", "emotional", "energetic",
+  "epic", "happy", "melancholic", "powerful",
   "relaxing", "romantic", "sad", "upbeat"
 ]
 
 function App() {
   const [selectedEmotion, setSelectedEmotion] = useState('happy')
-  const [selectedModel, setSelectedModel] = useState('cnn_self_attention')
+  const [selectedModel, setSelectedModel] = useState('cnn')
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false)
   const [generatedPlaylist, setGeneratedPlaylist] = useState(null)
   const [playlistError, setPlaylistError] = useState(null)
@@ -73,15 +73,16 @@ function App() {
             onChange={(e) => setSelectedModel(e.target.value)}
             className="select-input"
           >
-            <option value="cnn_self_attention">CNN + Self Attention (State of the Art)</option>
-            <option value="crnn">CRNN (Sequential Baseline)</option>
+            <option value="cnn">CNN</option>
+            <option value="crnn">CRNN</option>
+            <option value="mobilenet">MobileNet</option>
           </select>
         </div>
 
         <div className="emotion-section-title">Target Emotion</div>
         <div className="emotion-grid">
           {EMOTIONS.map(emotion => (
-            <div 
+            <div
               key={emotion}
               className={`emotion-chip ${selectedEmotion === emotion ? 'selected' : ''}`}
               onClick={() => !isLoadingPlaylist && setSelectedEmotion(emotion)}
@@ -91,12 +92,12 @@ function App() {
           ))}
         </div>
 
-        <button 
-          onClick={generatePlaylist} 
+        <button
+          onClick={generatePlaylist}
           className="generate-btn"
           disabled={isLoadingPlaylist}
         >
-          {isLoadingPlaylist ? 'Initializing Inference...' : 'Generate AI Playlist'}
+          {isLoadingPlaylist ? 'Initializing Inference...' : 'Generate Playlist'}
         </button>
       </div>
 
@@ -115,11 +116,11 @@ function App() {
             <h3>Inference Results</h3>
             <span className="track-count">{generatedPlaylist.length} tracks approved</span>
           </div>
-          
+
           <div className="playlist-grid">
             {generatedPlaylist.map((song, index) => (
-              <div 
-                key={song.id} 
+              <div
+                key={song.id}
                 className="track-card"
                 style={{ animationDelay: `${index * 0.1}s` }}
               >
